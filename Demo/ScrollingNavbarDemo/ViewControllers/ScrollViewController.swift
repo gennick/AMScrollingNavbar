@@ -9,14 +9,21 @@
 import UIKit
 import AMScrollingNavbar
 
-class ScrollViewController: ScrollingNavigationViewController, ScrollingNavigationControllerDelegate {
+class ScrollViewController: ScrollingNavigationViewController, ScrollingNavigationControllerDelegate, UIGestureRecognizerDelegate {
 
     @IBOutlet weak var scrollView: UIScrollView!
+    @IBOutlet weak var topConstraint: NSLayoutConstraint!
+    @IBOutlet weak var extensionView: UIView!
     
     override func viewDidLoad() {
         super.viewDidLoad()
 
         title = "ScrollView"
+        
+        
+//        let v = UIView(frame: CGRectMake(0, (self.navigationController?.navigationBar.frame.size.height)!, self.view.frame.size.width, 30))
+//        v.backgroundColor = UIColor.redColor()
+//        self.navigationController?.navigationBar.addSubview(v)
 
 //        navigationItem.prompt = "Prompt"
 
@@ -38,6 +45,51 @@ class ScrollViewController: ScrollingNavigationViewController, ScrollingNavigati
 
         scrollView.contentSize = CGSize(width: self.view.frame.size.width, height: label.frame.size.height)
         scrollView.delegate = self
+        
+        if let navigationController = self.navigationController as? ScrollingNavigationController {
+            navigationController.extensionTopConstraint = self.topConstraint
+            navigationController.extensionTopExpanded = 0
+            navigationController.extensionHeight = 30
+            navigationController.extensionView = self.extensionView
+        }
+        
+//        let gestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(self.handlePan(_:)))
+//        gestureRecognizer.maximumNumberOfTouches = 1
+//        gestureRecognizer.delegate = self
+//        scrollView.addGestureRecognizer(gestureRecognizer)
+    }
+    
+    var lastContentOffset: CGFloat = 0
+    
+    func handlePan(gesture: UIPanGestureRecognizer) {
+        if gesture.state != .Failed {
+            if let superview = scrollView.superview {
+                let translation = gesture.translationInView(superview)
+                let delta = lastContentOffset - translation.y
+                lastContentOffset = translation.y
+                print("1: \(delta)")
+//                if shouldScrollWithDelta(delta) {
+//                    scrollWithDelta(delta)
+//                }
+                var constant = self.topConstraint.constant - delta
+                if constant < -44-30 {
+                   constant = -44-30
+                }
+                if constant > 0 {
+                    constant = 0
+                }
+                self.topConstraint.constant = constant
+            }
+        }
+        
+        if gesture.state == .Ended || gesture.state == .Cancelled || gesture.state == .Failed {
+//            checkForPartialScroll()
+            lastContentOffset = 0
+        }
+    }
+    
+    func gestureRecognizer(gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWithGestureRecognizer otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
     }
 
     func scrollingNavigationController(controller: ScrollingNavigationController, didChangeState state: NavigationBarState) {
@@ -49,6 +101,27 @@ class ScrollViewController: ScrollingNavigationViewController, ScrollingNavigati
         case .Scrolling:
             print("navbar is moving")
         }
+    }
+    
+    func scrollingNavigationController(controller: ScrollingNavigationController, deltaChanged delta: CGFloat) {
+//        var offset = delta
+//        if offset < 0 { // show
+//            if controller.navigationBar.frame.origin.y - (UIApplication.sharedApplication().statusBarFrame.size.height - self.view.convertRect(self.view.bounds, toView: nil).minY) == 0 {
+//                offset = 0
+//            }
+//            else {
+//                offset = 30+44 + offset
+//                if offset < 0 {
+//                    offset = 0
+//                }
+//            }
+//        }
+//        else { // hide
+//            if offset > 30+44 {
+//                offset = 30+44
+//            }
+//        }
+//        self.topConstraint.constant = -offset
     }
 
     // Enable the navbar scrolling

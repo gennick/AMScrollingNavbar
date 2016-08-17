@@ -8,6 +8,7 @@ import UIKit
      Called when the state of the navigation bar changes
      */
     optional func scrollingNavigationController(controller: ScrollingNavigationController, didChangeState state: NavigationBarState)
+    optional func scrollingNavigationController(controller: ScrollingNavigationController, deltaChanged delta: CGFloat)
 }
 
 /**
@@ -66,6 +67,15 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
     var maxDelay: CGFloat = 0
     var scrollableView: UIView?
     var lastContentOffset = CGFloat(0.0)
+    
+    public var expansionResistance: CGFloat = 30
+    var currentExpansionResistance: CGFloat = 0
+    
+    public weak var extensionView: UIView?
+    public var extensionTopConstraint: NSLayoutConstraint?
+    public var extensionTopExpanded: CGFloat = 0
+    public var extensionHeight: CGFloat = 0
+    var extensionDelayDistance: CGFloat = 0
 
     /**
      Start scrolling
@@ -89,6 +99,7 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
 
         maxDelay = CGFloat(delay)
         delayDistance = CGFloat(delay)
+        extensionDelayDistance = CGFloat(delay)
         scrollingEnabled = true
     }
 
@@ -102,8 +113,11 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
 
         if state == .Expanded {
             self.state = .Scrolling
+            self.extensionView?.superview?.layoutIfNeeded()
             UIView.animateWithDuration(animated ? 0.1 : 0, animations: { () -> Void in
                 self.scrollWithDelta(self.fullNavbarHeight)
+                self.scrollExtensionWithDelta(-(self.extensionTopExpanded - self.extensionHeight - self.navbarHeight))
+                self.extensionView?.superview?.layoutIfNeeded()
                 visibleViewController.view.setNeedsLayout()
                 if self.navigationBar.translucent {
                     let currentOffset = self.contentOffset
@@ -128,10 +142,14 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
         if state == .Collapsed {
             gestureRecognizer?.enabled = false
             self.state = .Scrolling
+            self.extensionView?.superview?.layoutIfNeeded()
             UIView.animateWithDuration(animated ? 0.1 : 0, animations: {
                 self.lastContentOffset = 0;
                 self.delayDistance = -self.fullNavbarHeight
                 self.scrollWithDelta(-self.fullNavbarHeight)
+                self.extensionDelayDistance = (self.extensionTopExpanded - self.extensionHeight - self.navbarHeight)
+                self.scrollExtensionWithDelta((self.extensionTopExpanded - self.extensionHeight - self.navbarHeight))
+                self.extensionView?.superview?.layoutIfNeeded()
                 visibleViewController.view.setNeedsLayout()
                 if self.navigationBar.translucent {
                     let currentOffset = self.contentOffset
@@ -167,21 +185,42 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
     // MARK: - Gesture recognizer
 
     func handlePan(gesture: UIPanGestureRecognizer) {
-        if gesture.state != .Failed {
+        if gesture.state == .Began {
             if let superview = scrollableView?.superview {
                 let translation = gesture.translationInView(superview)
+//                currentExpansionResistance = translation.y
+            }
+        }
+        else if gesture.state != .Failed {
+            if let superview = scrollableView?.superview {
+                let translation = gesture.translationInView(superview)
+//                let resistance = currentExpansionResistance - translation.y
+//                print(resistance)
                 let delta = lastContentOffset - translation.y
                 lastContentOffset = translation.y
 
-                if shouldScrollWithDelta(delta) {
-                    scrollWithDelta(delta)
+//                scrollingNavbarDelegate?.scrollingNavigationController?(self, deltaChanged: resistance)
+                
+//                if abs(resistance) < expansionResistance {
+//                    return
+//                }
+                
+                print(delta)
+                if shouldScrollExtensionWithDelta(delta) {
+                    scrollExtensionWithDelta(delta)
                 }
+//                else {
+                    if shouldScrollWithDelta(delta) {
+                        scrollWithDelta(delta)
+                    }
+//                }
             }
         }
 
         if gesture.state == .Ended || gesture.state == .Cancelled || gesture.state == .Failed {
             checkForPartialScroll()
             lastContentOffset = 0
+            currentExpansionResistance = 0
         }
     }
 
@@ -242,7 +281,7 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
             delayDistance -= scrollDelta
 
             // Skip if the delay is not over yet
-            if delayDistance > 0 {
+            if delayDistance + self.extensionHeight > 0 {
                 return
             }
 
@@ -293,6 +332,73 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
         updateNavbarAlpha()
         restoreContentOffset(scrollDelta)
     }
+    
+    private func shouldScrollExtensionWithDelta(delta: CGFloat) -> Bool {
+        // Check for rubberbanding
+        if let constraint = self.extensionTopConstraint {
+            if delta < 0 {
+                if constraint.constant >= self.extensionTopExpanded {
+                    return false
+                }
+            }
+            else {
+                if constraint.constant <= self.extensionTopExpanded - self.extensionHeight - self.navbarHeight {
+                    return false
+                }
+            }
+            return true
+        }
+        else {
+            return false
+        }
+    }
+    
+    private func scrollExtensionWithDelta(delta: CGFloat) {
+        guard let constraint = self.extensionTopConstraint else {
+            return
+        }
+        
+        var constant = constraint.constant
+        
+        var scrollDelta = delta
+        
+        let m = self.extensionTopExpanded - self.extensionHeight - self.navbarHeight
+        
+        // View scrolling up, hide the extension
+        if scrollDelta > 0 {
+            // Update the delay
+            extensionDelayDistance -= scrollDelta
+            
+            // Skip if the delay is not over yet
+            if extensionDelayDistance > 0 {
+                return
+            }
+            
+            // Compute the bar position
+            if constant - scrollDelta < m {
+                scrollDelta = constant - m
+            }
+            
+        }
+        
+        if scrollDelta < 0 {
+            // Update the delay
+            extensionDelayDistance += scrollDelta
+
+            // Skip if the delay is not over yet
+            if extensionDelayDistance > 0 && maxDelay < m {
+                return
+            }
+            
+            // Compute the bar position
+            if constant - scrollDelta > self.extensionTopExpanded {
+                scrollDelta = constant - self.extensionTopExpanded
+            }
+          
+        }
+        
+        constraint.constant -= scrollDelta
+    }
 
     private func updateSizing(delta: CGFloat) {
         guard let topViewController = self.topViewController else { return }
@@ -340,23 +446,46 @@ public class ScrollingNavigationController: UINavigationController, UIGestureRec
         var duration = NSTimeInterval(0)
         var delta = CGFloat(0.0)
 
+        var constant: CGFloat = 0
+        var extConstant: CGFloat = 0
+        if let extensionTopConstraint = self.extensionTopConstraint {
+            extConstant = extensionTopConstraint.constant
+        }
+        
+        let m = self.extensionTopExpanded - self.extensionHeight - self.navbarHeight
+        
         // Scroll back down
-        if navigationBar.frame.origin.y >= (statusBarHeight - (frame.size.height / 2)) {
+        if extConstant + navigationBar.frame.origin.y >= (statusBarHeight - (frame.size.height / 2)) + (m / 2) {
             delta = frame.origin.y - statusBarHeight
-            duration = NSTimeInterval(abs((delta / (frame.size.height / 2)) * 0.2))
+            duration = NSTimeInterval(abs(((delta / (frame.size.height / 2)) + (self.extensionHeight / (m * -0.5))) * 0.2))
+            constant = self.extensionTopExpanded
             state = .Expanded
         } else {
             // Scroll up
             delta = frame.origin.y + deltaLimit
-            duration = NSTimeInterval(abs((delta / (frame.size.height / 2)) * 0.2))
+            duration = NSTimeInterval(abs(((delta / (frame.size.height / 2)) + (self.extensionHeight / (m * -0.5))) * 0.2))
+            constant = self.extensionTopExpanded - self.extensionHeight - self.navbarHeight
             state = .Collapsed
         }
 
         delayDistance = maxDelay
+        extensionDelayDistance = maxDelay
+        
+//        if let extensionTopConstraint = self.extensionTopConstraint {
+//            extensionTopConstraint.constant = constant
+//            self.extensionView?.setNeedsUpdateConstraints()
+//
+//        }
+        
+        self.extensionView?.superview?.layoutIfNeeded()
 
         UIView.animateWithDuration(duration, delay: 0, options: UIViewAnimationOptions.BeginFromCurrentState, animations: {
             self.updateSizing(delta)
             self.updateNavbarAlpha()
+            
+            self.extensionTopConstraint?.constant = constant
+            self.extensionView?.superview?.layoutIfNeeded()
+            
             }, completion: nil)
     }
 
